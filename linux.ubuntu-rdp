@@ -21,9 +21,6 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v5
-
       - name: Verify OS Version
         run: |
           echo "=========================================="
@@ -92,17 +89,17 @@ jobs:
           echo "  >>> SSH SERVER IS READY! <<<"
           echo "  OS           : Ubuntu 24.04"
           echo "  Tailscale IP : $TS_IP"
-          echo "  Username     : ${{ env.SSH_USERNAME }}"
+          echo "  Username     : $SSH_USERNAME"
           echo "  Password     : ******** (masked — see artifact)"
           echo ""
           echo "  >> Connect with:"
-          echo "     ssh ${{ env.SSH_USERNAME }}@$TS_IP"
+          echo "     ssh $SSH_USERNAME@$TS_IP"
           echo "=================================================="
 
       - name: Save Connection Info to Artifact
         run: |
           mkdir -p ./artifacts
-          
+
           cat > ./artifacts/connection-info.txt << EOF
 ============================================
 Linux Cloud SSH Server — Connection Info
