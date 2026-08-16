@@ -21,10 +21,10 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: 1. Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v5
 
-      - name: 2. Verify OS Version
+      - name: Verify OS Version
         run: |
           echo "=========================================="
           echo "  OS: $(cat /etc/os-release | grep PRETTY_NAME)"
@@ -33,7 +33,7 @@ jobs:
           echo "  Hostname: $(hostname)"
           echo "=========================================="
 
-      - name: 3. Install & Configure SSH Server
+      - name: Install & Configure SSH Server
         run: |
           sudo apt-get update
           sudo apt-get install -y openssh-server
@@ -46,7 +46,7 @@ jobs:
 
           sudo systemctl restart ssh
 
-      - name: 4. Create User Account
+      - name: Create User Account
         run: |
           USERNAME="${{ github.event.inputs.ssh_username }}"
 
@@ -68,7 +68,7 @@ jobs:
 
           echo "User '$USERNAME' created successfully."
 
-      - name: 5. Install & Connect Tailscale VPN
+      - name: Install & Connect Tailscale VPN
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
 
@@ -99,23 +99,22 @@ jobs:
           echo "     ssh ${{ env.SSH_USERNAME }}@$TS_IP"
           echo "=================================================="
 
-      - name: 6. Save Connection Info to Artifact
+      - name: Save Connection Info to Artifact
         run: |
           mkdir -p ./artifacts
-          cat > ./artifacts/connection-info.txt << 'HEREDOC'
+          
+          cat > ./artifacts/connection-info.txt << EOF
 ============================================
 Linux Cloud SSH Server — Connection Info
 ============================================
 OS           : Ubuntu 24.04 LTS
-HEREDOC
-          cat >> ./artifacts/connection-info.txt << EOF
-Tailscale IP : ${{ env.TS_IP }}
-Username     : ${{ env.SSH_USERNAME }}
-Password     : ${{ env.SSH_PASSWORD }}
+Tailscale IP : ${TS_IP}
+Username     : ${SSH_USERNAME}
+Password     : ${SSH_PASSWORD}
 Created      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
 Connection Command:
-  ssh ${{ env.SSH_USERNAME }}@${{ env.TS_IP }}
+  ssh ${SSH_USERNAME}@${TS_IP}
 
 Notes:
   - You must be on the same Tailscale network
@@ -124,14 +123,14 @@ Notes:
 ============================================
 EOF
 
-      - name: 7. Upload Connection Info
+      - name: Upload Connection Info
         uses: actions/upload-artifact@v5
         with:
           name: ssh-connection-info
           path: artifacts/connection-info.txt
           retention-days: 1
 
-      - name: 8. Keep Server Alive (6 Hours)
+      - name: Keep Server Alive (6 Hours)
         run: |
           for i in $(seq 1 359); do
             sleep 60
