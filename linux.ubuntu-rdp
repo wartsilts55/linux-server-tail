@@ -17,11 +17,14 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04    # ← Explicit version (NOT "latest")
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
 
     steps:
-      - name: 1. Verify OS Version
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: 2. Verify OS Version
         run: |
           echo "=========================================="
           echo "  OS: $(cat /etc/os-release | grep PRETTY_NAME)"
@@ -30,61 +33,50 @@ jobs:
           echo "  Hostname: $(hostname)"
           echo "=========================================="
 
-      - name: 2. Install & Configure SSH Server
+      - name: 3. Install & Configure SSH Server
         run: |
           sudo apt-get update
           sudo apt-get install -y openssh-server
 
-          # Ensure SSH is running
           sudo systemctl enable ssh
           sudo systemctl start ssh
 
-          # Allow password authentication
           sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
-          # Restart SSH to apply changes
           sudo systemctl restart ssh
 
-      - name: 3. Create User Account
+      - name: 4. Create User Account
         run: |
           USERNAME="${{ github.event.inputs.ssh_username }}"
 
-          # Auto-generate password if not provided
           if [ -z "${{ github.event.inputs.ssh_password }}" ]; then
             PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
           else
             PASSWORD="${{ github.event.inputs.ssh_password }}"
           fi
 
-          # Mask the password in logs
           echo "::add-mask::$PASSWORD"
 
-          # Create user with sudo privileges
           sudo useradd -m -s /bin/bash "$USERNAME"
           echo "$USERNAME:$PASSWORD" | sudo chpasswd
 
-          # Add to sudo group (passwordless sudo for convenience)
           echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USERNAME
 
-          # Save password to environment (masked)
           echo "SSH_USERNAME=$USERNAME" >> $GITHUB_ENV
           echo "SSH_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
           echo "User '$USERNAME' created successfully."
 
-      - name: 4. Install & Connect Tailscale VPN
+      - name: 5. Install & Connect Tailscale VPN
         run: |
-          # Install Tailscale
           curl -fsSL https://tailscale.com/install.sh | sh
 
-          # Start Tailscale daemon
           sudo systemctl enable tailscaled
           sudo systemctl start tailscaled
 
           sleep 3
 
-          # Connect to Tailscale network
           sudo tailscale up \
             --authkey="$TAILSCALE_AUTHKEY" \
             --hostname="github-linux-server" \
@@ -92,60 +84,59 @@ jobs:
 
           sleep 8
 
-          # Get Tailscale IP
           TS_IP=$(sudo tailscale ip -4)
           echo "TS_IP=$TS_IP" >> $GITHUB_ENV
 
-          # Print connection banner
           echo ""
           echo "=================================================="
           echo "  >>> SSH SERVER IS READY! <<<"
           echo "  OS           : Ubuntu 24.04"
           echo "  Tailscale IP : $TS_IP"
           echo "  Username     : ${{ env.SSH_USERNAME }}"
-          echo "  Password     : ******** (masked — see step 5 artifact)"
+          echo "  Password     : ******** (masked — see artifact)"
           echo ""
           echo "  >> Connect with:"
           echo "     ssh ${{ env.SSH_USERNAME }}@$TS_IP"
           echo "=================================================="
 
-      - name: 5. Save Connection Info to Artifact
+      - name: 6. Save Connection Info to Artifact
         run: |
           mkdir -p ./artifacts
-          cat > ./artifacts/connection-info.txt << EOF
-          ============================================
-          Linux Cloud SSH Server — Connection Info
-          ============================================
-          OS           : Ubuntu 24.04 LTS
-          Tailscale IP : ${{ env.TS_IP }}
-          Username     : ${{ env.SSH_USERNAME }}
-          Password     : ${{ env.SSH_PASSWORD }}
-          Created      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          cat > ./artifacts/connection-info.txt << 'HEREDOC'
+============================================
+Linux Cloud SSH Server — Connection Info
+============================================
+OS           : Ubuntu 24.04 LTS
+HEREDOC
+          cat >> ./artifacts/connection-info.txt << EOF
+Tailscale IP : ${{ env.TS_IP }}
+Username     : ${{ env.SSH_USERNAME }}
+Password     : ${{ env.SSH_PASSWORD }}
+Created      : $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-          Connection Command:
-            ssh ${{ env.SSH_USERNAME }}@${{ env.TS_IP }}
+Connection Command:
+  ssh ${{ env.SSH_USERNAME }}@${{ env.TS_IP }}
 
-          Notes:
-            - You must be on the same Tailscale network
-            - Server will shut down after 6 hours
-            - Use 'sudo' for administrative commands
-          ============================================
-          EOF
+Notes:
+  - You must be on the same Tailscale network
+  - Server will shut down after 6 hours
+  - Use 'sudo' for administrative commands
+============================================
+EOF
 
-      - name: Upload Connection Info
-        uses: actions/upload-artifact@v4
+      - name: 7. Upload Connection Info
+        uses: actions/upload-artifact@v5
         with:
           name: ssh-connection-info
           path: artifacts/connection-info.txt
           retention-days: 1
 
-      - name: 6. Keep Server Alive (6 Hours)
+      - name: 8. Keep Server Alive (6 Hours)
         run: |
-          for i in $(seq 1 360); do
+          for i in $(seq 1 359); do
             sleep 60
-            echo "[$i/360] Server alive — $(date -u '+%H:%M:%S')"
+            echo "[$i/359] Server alive — $(date -u '+%H:%M:%S')"
 
-            # Health check: verify Tailscale is still connected
             if ! sudo tailscale status >/dev/null 2>&1; then
               echo "WARNING: Tailscale disconnected — reconnecting..."
               sudo tailscale down 2>/dev/null
@@ -157,7 +148,6 @@ jobs:
               sleep 5
             fi
 
-            # Health check: verify SSH is running
             if ! sudo systemctl is-active ssh >/dev/null 2>&1; then
               echo "WARNING: SSH service down — restarting..."
               sudo systemctl restart ssh
